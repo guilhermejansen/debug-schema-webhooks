@@ -1,0 +1,57 @@
+---
+alwaysApply: true
+description: Arquitetura e estrutura principal do projeto WhatsApp Webhook Mapper
+---
+
+# Arquitetura do Projeto - WhatsApp Webhook Mapper
+
+## 📋 Visão Geral
+Este é um sistema de mapeamento automático de eventos de webhook do WhatsApp que:
+- Recebe eventos via webhook
+- Analisa automaticamente a estrutura JSON
+- Trunca campos grandes (base64, thumbnails)
+- Gera schemas Zod e interfaces TypeScript
+- Organiza tudo de forma estruturada
+
+## 🏗️ Estrutura de Diretórios
+
+```
+webhook-mapper/
+├── src/
+│   ├── server/          # Backend principal
+│   │   ├── services/    # Serviços de negócio
+│   │   ├── routes/      # Rotas da API
+│   │   ├── config/      # Configurações
+│   │   ├── utils/       # Utilitários
+│   │   ├── database/    # Camada de dados
+│   │   └── queue/       # Processamento assíncrono
+│   ├── dashboard/       # Interface web
+│   └── types/          # Tipos TypeScript
+├── schemas/            # Schemas gerados (auto)
+├── data/              # Banco SQLite
+├── logs/              # Logs da aplicação
+└── docker/            # Configuração Docker
+```
+
+## 🎯 Tecnologias Principais
+- **Backend**: Node.js 20+ + TypeScript + Fastify
+- **Validação**: Zod para schemas
+- **Queue**: BullMQ + Redis
+- **Database**: SQLite para metadados
+- **Frontend**: React + Vite + TailwindCSS
+- **Deploy**: Docker + Docker Compose
+
+## 📝 Convenções de Nomenclatura
+- **Arquivos**: PascalCase para classes (`EventAnalyzer.ts`)
+- **Diretórios**: kebab-case (`raw-samples/`)
+- **Variáveis**: camelCase (`eventType`)
+- **Constantes**: UPPER_SNAKE_CASE (`MAX_PAYLOAD_SIZE`)
+- **Interfaces**: PascalCase com `I` prefix opcional (`EventStructure`)
+
+## 🔧 Padrões de Desenvolvimento
+- Sempre usar TypeScript strict mode
+- Todos os serviços devem ter injeção de dependência
+- Logs estruturados com contexto
+- Error handling robusto
+- Processamento assíncrono via queues
+- Testes unitários e integração

@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  # Redis para queue do BullMQ
+  redis:
+    image: redis:7-alpine
+    container_name: webhook-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - webhook-net
+    environment:
+      - REDIS_REPLICATION_MODE=master
+
+  # Aplicação principal
+  webhook-mapper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: webhook-mapper
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./schemas:/app/schemas
+      - ./data:/app/data
+      - ./_env:/app/.env:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=info
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DATABASE_PATH=/app/data/database.sqlite
+      - CORS_ORIGIN=*
+      - RATE_LIMIT_MAX=1000
+      - RATE_LIMIT_WINDOW=60000
+      - TRUNCATE_MAX_LENGTH=100
+      - TRUNCATE_FIELDS=base64,JPEGThumbnail,thumbnail,data,image
+      - MAX_RAW_SAMPLES=10
+      - MAX_EXAMPLES_PER_SCHEMA=20
+      - QUEUE_CONCURRENCY=5
+      - QUEUE_MAX_ATTEMPTS=3
+      - QUEUE_BACKOFF_DELAY=2000
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - webhook-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webhook-mapper.rule=Host(`webhook-mapper.localhost`)"
+      - "traefik.http.services.webhook-mapper.loadbalancer.server.port=3000"
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: webhook-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      webhook-mapper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - webhook-net
+    environment:
+      - NGINX_ENTRYPOINT_QUIET_LOGS=1
+
+  # Prometheus para métricas (opcional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: webhook-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - webhook-net
+    profiles:
+      - monitoring
+
+  # Grafana para visualização (opcional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: webhook-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - webhook-net
+    profiles:
+      - monitoring
+
+  # Serviço de backup (opcional)
+  backup:
+    image: alpine:latest
+    container_name: webhook-backup
+    restart: "no"
+    volumes:
+      - ./schemas:/backup/schemas:ro
+      - ./data:/backup/data:ro
+    command: |
+      sh -c '
+        apk add --no-cache tar gzip &&
+        DATE=$$(date +%Y%m%d_%H%M%S) &&
+        echo "Creating backup for $$DATE" &&
+        tar -czf /backups/webhook-mapper-$$DATE.tar.gz \
+          -C /backup schemas data &&
+        echo "Backup completed: webhook-mapper-$$DATE.tar.gz" &&
+        find /backups -name "*.tar.gz" -mtime +7 -delete &&
+        echo "Old backups cleaned up"
+      '
+    networks:
+      - webhook-net
+    profiles:
+      - backup
+
+# Volumes para persistência de dados
+volumes:
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# Rede customizada para isolamento
+networks:
+  webhook-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

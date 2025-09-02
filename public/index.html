@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 WhatsApp Webhook Mapper - Dashboard</title>
+    
+    <!-- Meta tags -->
+    <meta name="description" content="Sistema de mapeamento automático de eventos de webhook WhatsApp">
+    <meta name="author" content="Guilherme Jansen">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            padding: 40px 20px;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            font-size: 2rem;
+            margin-right: 15px;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .card-content {
+            color: #6b7280;
+            font-size: 1rem;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .buttons-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .feature {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .feature-title {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+        }
+
+        .feature-description {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .timestamp {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            margin-top: 30px;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            .header p {
+                font-size: 1rem;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .buttons-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🚀 WhatsApp Webhook Mapper</h1>
+            <p>Sistema de mapeamento automático de eventos e geração de schemas</p>
+        </header>
+
+        <div class="stats-grid">
+            <!-- Status da API -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📡</span>
+                    <h3 class="card-title">Status da API</h3>
+                </div>
+                <div class="card-content">
+                    <div id="api-status" class="loading">
+                        <div class="spinner"></div>
+                        <div>Verificando...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estatísticas -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📊</span>
+                    <h3 class="card-title">Estatísticas</h3>
+                </div>
+                <div class="card-content" id="stats-content">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Carregando estatísticas...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schemas -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h3 class="card-title">Schemas Gerados</h3>
+                </div>
+                <div class="card-content" id="schemas-content">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Carregando schemas...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sistema -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">⚙️</span>
+                    <h3 class="card-title">Sistema</h3>
+                </div>
+                <div class="card-content">
+                    <div><strong>Horário:</strong> <span id="current-time"></span></div>
+                    <div><strong>Versão:</strong> 1.0.0</div>
+                    <div><strong>Stack:</strong> Node.js + Fastify + TypeScript</div>
+                    <div><strong>Frontend:</strong> HTML5 + JavaScript</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Funcionalidades -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">✨</span>
+                <h3 class="card-title">Funcionalidades</h3>
+            </div>
+            <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-title">📥 Webhook Receptor</div>
+                    <div class="feature-description">Recebe eventos do WhatsApp automaticamente</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-title">🔍 Schema Generator</div>
+                    <div class="feature-description">Gera schemas Zod e interfaces TypeScript</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-title">📝 Truncate Service</div>
+                    <div class="feature-description">Remove dados desnecessários (base64, thumbnails)</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-title">🗂️ File Management</div>
+                    <div class="feature-description">Organização automática de schemas e amostras</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-title">⚡ Queue Processing</div>
+                    <div class="feature-description">Processamento assíncrono com BullMQ + Redis</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-title">📊 Dashboard</div>
+                    <div class="feature-description">Visualização em tempo real de todos os dados</div>
+                </div>
+            </div>
+
+            <!-- Botões de Ação -->
+            <div class="buttons-grid">
+                <a href="/api/health" target="_blank" class="btn btn-primary">
+                    🔗 API Health
+                </a>
+                <a href="/api/schemas" target="_blank" class="btn btn-success">
+                    📋 Ver Schemas
+                </a>
+                <a href="/webhook/stats" target="_blank" class="btn btn-secondary">
+                    📈 Estatísticas Webhook
+                </a>
+                <button onclick="refreshData()" class="btn btn-primary">
+                    🔄 Atualizar Dados
+                </button>
+            </div>
+        </div>
+
+        <div class="timestamp">
+            <div id="last-update"></div>
+        </div>
+    </div>
+
+    <script>
+        console.log('🟢 Frontend HTML carregado com sucesso!');
+
+        let refreshInterval;
+
+        // Atualizar horário
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleString('pt-BR');
+        }
+
+        // Verificar status da API
+        async function checkApiStatus() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                
+                document.getElementById('api-status').innerHTML = `
+                    <span class="status-indicator status-success">✅ Online</span>
+                    <div style="margin-top: 10px; font-size: 0.9rem;">
+                        <div><strong>Status:</strong> ${data.status}</div>
+                        <div><strong>Uptime:</strong> ${Math.floor(data.uptime / 60)} minutos</div>
+                        <div><strong>Ambiente:</strong> ${data.env}</div>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('api-status').innerHTML = `
+                    <span class="status-indicator status-error">❌ Offline</span>
+                    <div style="margin-top: 10px; color: #991b1b;">
+                        Erro: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Carregar schemas
+        async function loadSchemas() {
+            try {
+                const response = await fetch('/api/schemas');
+                const data = await response.json();
+                
+                if (data.success && data.data.length > 0) {
+                    const schemasList = data.data.map(schema => 
+                        `<div style="margin-bottom: 8px;">
+                            <strong>${schema.eventType}</strong> 
+                            <span style="color: #6b7280;">(v${schema.version || 1})</span>
+                        </div>`
+                    ).join('');
+                    
+                    document.getElementById('schemas-content').innerHTML = `
+                        <div><strong>Total:</strong> ${data.data.length} schemas</div>
+                        <div style="margin-top: 15px; max-height: 200px; overflow-y: auto;">
+                            ${schemasList}
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('schemas-content').innerHTML = `
+                        <span class="status-indicator status-warning">⚠️ Nenhum schema</span>
+                        <div style="margin-top: 10px; color: #92400e;">
+                            Envie um webhook para gerar schemas automaticamente
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('schemas-content').innerHTML = `
+                    <span class="status-indicator status-error">❌ Erro</span>
+                    <div style="margin-top: 10px; color: #991b1b;">
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Carregar estatísticas (placeholder)
+        function loadStats() {
+            document.getElementById('stats-content').innerHTML = `
+                <div><strong>Webhooks Processados:</strong> <span style="color: #059669;">0</span></div>
+                <div><strong>Eventos Únicos:</strong> <span style="color: #3b82f6;">0</span></div>
+                <div><strong>Schemas Ativos:</strong> <span style="color: #7c3aed;">0</span></div>
+                <div style="margin-top: 10px; font-size: 0.9rem; color: #6b7280;">
+                    As estatísticas serão atualizadas conforme webhooks são recebidos
+                </div>
+            `;
+        }
+
+        // Atualizar todos os dados
+        async function refreshData() {
+            console.log('🔄 Atualizando dados...');
+            await Promise.all([
+                checkApiStatus(),
+                loadSchemas(),
+                loadStats()
+            ]);
+            document.getElementById('last-update').textContent = 
+                `Última atualização: ${new Date().toLocaleString('pt-BR')}`;
+        }
+
+        // Inicializar
+        function init() {
+            console.log('🚀 Inicializando dashboard...');
+            updateTime();
+            refreshData();
+            
+            // Atualizar horário a cada segundo
+            setInterval(updateTime, 1000);
+            
+            // Atualizar dados a cada 30 segundos
+            refreshInterval = setInterval(refreshData, 30000);
+        }
+
+        // Inicializar quando página carregar
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Limpar interval ao sair da página
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+
+        console.log('✅ Dashboard pronto para uso!');
+    </script>
+</body>
+</html>

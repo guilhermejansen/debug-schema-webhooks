@@ -1,0 +1,534 @@
+---
+globs: src/dashboard/**/*.tsx,src/dashboard/**/*.ts,*.html
+description: Regras para desenvolvimento do dashboard frontend React
+---
+
+# Dashboard Frontend - React + Vite
+
+## 🎨 Estrutura de Componentes
+
+### Organização OBRIGATÓRIA:
+```
+src/dashboard/
+├── App.tsx              # Componente principal
+├── main.tsx            # Entry point
+├── components/
+│   ├── EventList.tsx   # Lista de eventos recebidos
+│   ├── SchemaViewer.tsx # Visualizador de schemas
+│   ├── Statistics.tsx  # Gráficos e métricas
+│   ├── TruncatedFields.tsx # Campos truncados
+│   └── shared/         # Componentes reutilizáveis
+├── hooks/              # Custom hooks
+├── api/               # Cliente API
+└── types/             # Tipos TypeScript
+```
+
+## ⚛️ Padrões React + TypeScript
+
+### Componentes Funcionais APENAS:
+```tsx
+// ✅ Correto - Functional component com TypeScript
+interface EventListProps {
+  events: EventSummary[];
+  onEventClick: (eventId: string) => void;
+  loading?: boolean;
+}
+
+export const EventList: React.FC<EventListProps> = ({
+  events,
+  onEventClick,
+  loading = false
+}) => {
+  if (loading) {
+    return <div className="animate-pulse">Carregando eventos...</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {events.map((event) => (
+        <EventCard 
+          key={event.id}
+          event={event}
+          onClick={() => onEventClick(event.id)}
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+### Custom Hooks para Lógica:
+```tsx
+// ✅ Correto - Custom hook para API
+export const useEventStats = () => {
+  const [stats, setStats] = useState<EventStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const response = await api.getEventStats();
+        setStats(response.data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000); // Atualiza a cada 30s
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return { stats, loading, error };
+};
+```
+
+## 🎯 TailwindCSS + UI Patterns
+
+### Classes Padrão para Componentes:
+```tsx
+// ✅ Correto - Padrões TailwindCSS consistentes
+const cardClasses = "bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow";
+const buttonClasses = "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500";
+const inputClasses = "border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500";
+
+// Cards para dados
+export const EventCard: React.FC<{ event: EventSummary }> = ({ event }) => (
+  <div className={cardClasses}>
+    <div className="flex justify-between items-center">
+      <h3 className="text-lg font-semibold">{event.eventType}</h3>
+      <span className="text-sm text-gray-500">
+        {formatRelativeTime(event.lastSeen)}
+      </span>
+    </div>
+    <div className="mt-2 text-sm text-gray-600">
+      {event.totalReceived} eventos • v{event.schemaVersion}
+    </div>
+    {event.hasTruncatedFields && (
+      <div className="mt-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+        Campos truncados detectados
+      </div>
+    )}
+  </div>
+);
+```
+
+### Layout Responsivo OBRIGATÓRIO:
+```tsx
+// ✅ Correto - Layout responsivo
+export const Dashboard: React.FC = () => {
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 className="text-2xl font-bold text-gray-900 py-4">
+            WhatsApp Webhook Mapper
+          </h1>
+        </div>
+      </header>
+      
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Stats - Sempre no topo mobile, lateral desktop */}
+          <div className="lg:col-span-1">
+            <Statistics />
+          </div>
+          
+          {/* Main content */}
+          <div className="lg:col-span-2">
+            <EventList />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+```
+
+## 📊 Componentes de Visualização
+
+### Gráficos com Recharts:
+```tsx
+// ✅ Correto - Gráfico de eventos por hora
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+export const EventsOverTime: React.FC<{ data: EventTimeData[] }> = ({ data }) => {
+  return (
+    <div className="bg-white p-4 rounded-lg shadow">
+      <h3 className="text-lg font-semibold mb-4">Eventos por Hora</h3>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis 
+            dataKey="hour" 
+            tickFormatter={(value) => `${value}h`}
+          />
+          <YAxis />
+          <Tooltip 
+            labelFormatter={(value) => `${value}h`}
+            formatter={(value: number) => [value, 'Eventos']}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="count" 
+            stroke="#3B82F6" 
+            strokeWidth={2}
+            dot={{ fill: '#3B82F6' }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+```
+
+### Schema Viewer com Highlight:
+```tsx
+// ✅ Correto - Viewer de schema com syntax highlighting
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+export const SchemaViewer: React.FC<{ schema: SchemaData }> = ({ schema }) => {
+  const [activeTab, setActiveTab] = useState<'zod' | 'interface' | 'examples'>('zod');
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg">
+      <div className="border-b">
+        <nav className="flex">
+          {(['zod', 'interface', 'examples'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium capitalize ${
+                activeTab === tab
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab === 'zod' ? 'Schema Zod' : 
+               tab === 'interface' ? 'Interface TS' : 
+               'Exemplos'}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      <div className="p-4">
+        {activeTab === 'zod' && (
+          <SyntaxHighlighter
+            language="typescript"
+            style={tomorrow}
+            customStyle={{ borderRadius: '0.5rem' }}
+          >
+            {schema.zodSchema}
+          </SyntaxHighlighter>
+        )}
+        
+        {activeTab === 'interface' && (
+          <SyntaxHighlighter
+            language="typescript"
+            style={tomorrow}
+            customStyle={{ borderRadius: '0.5rem' }}
+          >
+            {schema.tsInterface}
+          </SyntaxHighlighter>
+        )}
+        
+        {activeTab === 'examples' && (
+          <SyntaxHighlighter
+            language="json"
+            style={tomorrow}
+            customStyle={{ borderRadius: '0.5rem' }}
+          >
+            {JSON.stringify(schema.examples, null, 2)}
+          </SyntaxHighlighter>
+        )}
+      </div>
+    </div>
+  );
+};
+```
+
+## 🔄 Estado e Data Fetching
+
+### Context para Estado Global:
+```tsx
+// ✅ Correto - Context para dados globais
+interface DashboardContextType {
+  eventTypes: EventType[];
+  selectedEventType: string | null;
+  setSelectedEventType: (eventType: string | null) => void;
+  refreshData: () => Promise<void>;
+}
+
+const DashboardContext = createContext<DashboardContextType | null>(null);
+
+export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [selectedEventType, setSelectedEventType] = useState<string | null>(null);
+
+  const refreshData = useCallback(async () => {
+    try {
+      const response = await api.getEventTypes();
+      setEventTypes(response.data);
+    } catch (error) {
+      console.error('Failed to fetch event types:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
+
+  const value = {
+    eventTypes,
+    selectedEventType,
+    setSelectedEventType,
+    refreshData
+  };
+
+  return (
+    <DashboardContext.Provider value={value}>
+      {children}
+    </DashboardContext.Provider>
+  );
+};
+
+export const useDashboard = () => {
+  const context = useContext(DashboardContext);
+  if (!context) {
+    throw new Error('useDashboard must be used within DashboardProvider');
+  }
+  return context;
+};
+```
+
+### API Client Tipado:
+```tsx
+// ✅ Correto - Cliente API com tipos
+interface ApiClient {
+  getEventTypes(): Promise<ApiResponse<EventType[]>>;
+  getEventStats(): Promise<ApiResponse<EventStats>>;
+  getSchemaByType(eventType: string): Promise<ApiResponse<SchemaData>>;
+  getRecentEvents(limit?: number): Promise<ApiResponse<EventSummary[]>>;
+}
+
+class WebhookMapperAPI implements ApiClient {
+  private baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+  private async request<T>(endpoint: string): Promise<ApiResponse<T>> {
+    try {
+      const response = await fetch(`${this.baseURL}${endpoint}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw error;
+    }
+  }
+
+  async getEventTypes(): Promise<ApiResponse<EventType[]>> {
+    return this.request<EventType[]>('/schemas');
+  }
+
+  async getEventStats(): Promise<ApiResponse<EventStats>> {
+    return this.request<EventStats>('/stats');
+  }
+
+  async getSchemaByType(eventType: string): Promise<ApiResponse<SchemaData>> {
+    return this.request<SchemaData>(`/schemas/${encodeURIComponent(eventType)}`);
+  }
+
+  async getRecentEvents(limit = 50): Promise<ApiResponse<EventSummary[]>> {
+    return this.request<EventSummary[]>(`/events/recent?limit=${limit}`);
+  }
+}
+
+export const api = new WebhookMapperAPI();
+```
+
+## 🎭 Tipos TypeScript para Frontend
+
+### Tipos da API:
+```typescript
+// ✅ Correto - Tipos para dados da API
+export interface EventType {
+  name: string;
+  totalReceived: number;
+  lastSeen: string;
+  schemaVersion: number;
+  hasTruncatedFields: boolean;
+}
+
+export interface EventStats {
+  totalEvents: number;
+  uniqueEventTypes: number;
+  eventsLastHour: number;
+  eventsLastDay: number;
+  averageProcessingTime: number;
+  queueSize: number;
+}
+
+export interface SchemaData {
+  eventType: string;
+  zodSchema: string;
+  tsInterface: string;
+  examples: any;
+  metadata: EventMetadata;
+}
+
+export interface EventSummary {
+  id: string;
+  eventType: string;
+  timestamp: string;
+  truncated: boolean;
+  size: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+```
+
+## 🚀 Build e Deploy do Frontend
+
+### Vite Configuration:
+```typescript
+// ✅ vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: 'dist/dashboard',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          charts: ['recharts'],
+          syntax: ['react-syntax-highlighter']
+        }
+      }
+    }
+  },
+  server: {
+    port: 3001,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
+  }
+});
+```
+
+### Dockerfile para Dashboard:
+```dockerfile
+# ✅ Dockerfile.dashboard
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build:dashboard
+
+# Nginx para servir o frontend
+FROM nginx:alpine
+COPY --from=builder /app/dist/dashboard /usr/share/nginx/html
+COPY nginx-dashboard.conf /etc/nginx/nginx.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+## 📱 Responsividade e UX
+
+### Loading States:
+```tsx
+// ✅ Correto - Estados de loading consistentes
+export const LoadingCard: React.FC = () => (
+  <div className="animate-pulse bg-white rounded-lg shadow p-4">
+    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+    <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+  </div>
+);
+
+export const LoadingSpinner: React.FC<{ size?: 'sm' | 'md' | 'lg' }> = ({ size = 'md' }) => {
+  const sizeClasses = {
+    sm: 'h-4 w-4',
+    md: 'h-8 w-8', 
+    lg: 'h-12 w-12'
+  };
+  
+  return (
+    <div className={`animate-spin rounded-full border-2 border-gray-300 border-t-blue-500 ${sizeClasses[size]}`} />
+  );
+};
+```
+
+### Error Boundaries:
+```tsx
+// ✅ Correto - Error boundary para componentes
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class ErrorBoundary extends Component<
+  { children: ReactNode },
+  ErrorBoundaryState
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Dashboard error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
+            <h2 className="text-2xl font-bold text-red-600 mb-4">
+              Erro no Dashboard
+            </h2>
+            <p className="text-gray-600 mb-4">
+              Ocorreu um erro inesperado. Tente recarregar a página.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Recarregar Página
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```

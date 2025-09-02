@@ -1,0 +1,338 @@
+---
+globs: *.ts,*.tsx,src/**/*.ts,src/**/*.tsx
+description: Padrões TypeScript específicos para o projeto webhook mapper
+---
+
+# Padrões TypeScript - Webhook Mapper
+
+## 🎯 Configuração Strict Mode OBRIGATÓRIA
+
+```typescript
+// tsconfig.json - SEMPRE usar estas configurações
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true
+  }
+}
+```
+
+## 📝 Interfaces e Tipos Específicos do Domínio
+
+### EventStructure - Interface Central:
+```typescript
+// ✅ Correto - Interface completa
+export interface EventStructure {
+  path: string;
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'null' | 'union';
+  optional: boolean;
+  children?: Map<string, EventStructure>;
+  arrayItemType?: EventStructure;
+  examples: any[];
+  isTruncated?: boolean;
+  originalType?: string;
+}
+```
+
+### TruncateMetadata - Metadados de Truncamento:
+```typescript
+// ✅ Correto - Tipos para truncamento
+interface TruncateMetadata {
+  hasTruncated: boolean;
+  truncatedFields: TruncatedField[];
+  originalSize: number;
+  truncatedSize: number;
+}
+
+interface TruncatedField {
+  path: string;
+  originalLength: number;
+  truncatedLength: number;
+  type: 'base64' | 'json' | 'text';
+}
+```
+
+## 🔧 Padrões de Classes de Serviço
+
+### Constructor Injection Pattern:
+```typescript
+// ✅ Correto - Injeção de dependências
+export class EventAnalyzer {
+  constructor(
+    private readonly truncateService: TruncateService,
+    private readonly logger: Logger
+  ) {}
+  
+  // Métodos públicos
+  public analyzeEvent(event: any): AnalysisResult {
+    // implementação
+  }
+  
+  // Métodos privados para lógica interna
+  private buildStructureMap(obj: any): EventStructure {
+    // implementação
+  }
+}
+```
+
+### Return Types Explícitos:
+```typescript
+// ✅ Correto - Sempre definir tipos de retorno
+async generateZodSchema(
+  structure: EventStructure, 
+  eventType: string
+): Promise<string> {
+  // implementação
+}
+
+// ❌ Incorreto - Tipo inferido
+async generateZodSchema(structure: EventStructure, eventType: string) {
+  // implementação
+}
+```
+
+## 🎨 Generics e Utility Types
+
+### Uso de Generics para Reutilização:
+```typescript
+// ✅ Correto - Generic para processamento
+interface ProcessResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  metadata: ProcessMetadata;
+}
+
+class EventProcessor<T = any> {
+  async process(event: T): Promise<ProcessResult<T>> {
+    // implementação
+  }
+}
+```
+
+### Utility Types para Transformações:
+```typescript
+// ✅ Correto - Usar utility types
+type EventMetadataUpdate = Partial<Pick<EventMetadata, 
+  'lastSeen' | 'totalReceived' | 'schemaVersion'
+>>;
+
+type RequiredEventFields = Required<Pick<EventStructure,
+  'path' | 'type' | 'optional'
+>>;
+```
+
+## 🛡️ Error Handling Tipado
+
+### Classe de Erro Personalizada:
+```typescript
+// ✅ Correto - Erros tipados
+export class WebhookProcessingError extends Error {
+  constructor(
+    message: string,
+    public readonly eventType: string,
+    public readonly originalError?: Error,
+    public readonly context?: Record<string, any>
+  ) {
+    super(message);
+    this.name = 'WebhookProcessingError';
+  }
+}
+
+// Uso em métodos
+async processEvent(event: any): Promise<void> {
+  try {
+    // processamento
+  } catch (error) {
+    throw new WebhookProcessingError(
+      'Failed to process webhook event',
+      event.eventType || 'unknown',
+      error instanceof Error ? error : undefined,
+      { eventId: event.id, timestamp: Date.now() }
+    );
+  }
+}
+```
+
+### Result Pattern:
+```typescript
+// ✅ Correto - Result pattern para operações que podem falhar
+type Result<T, E = Error> = 
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+async function safeTruncateEvent(event: any): Promise<Result<TruncatedEvent>> {
+  try {
+    const result = await truncateService.truncate(event);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: error as Error };
+  }
+}
+```
+
+## 📊 Tipos para Configuração
+
+### Environment e Config:
+```typescript
+// ✅ Correto - Tipos para configuração
+interface AppConfig {
+  server: {
+    port: number;
+    host: string;
+    bodyLimit: number;
+  };
+  redis: {
+    host: string;
+    port: number;
+  };
+  truncate: {
+    maxLength: number;
+    fields: string[];
+  };
+}
+
+// Validação em runtime
+function validateConfig(config: unknown): AppConfig {
+  // usar Zod para validação
+  return configSchema.parse(config);
+}
+```
+
+## 🔄 Async/Await Patterns
+
+### SEMPRE usar async/await (nunca .then()):
+```typescript
+// ✅ Correto - async/await
+async function processMultipleEvents(events: any[]): Promise<ProcessResult[]> {
+  const results: ProcessResult[] = [];
+  
+  for (const event of events) {
+    try {
+      const result = await this.processEvent(event);
+      results.push(result);
+    } catch (error) {
+      this.logger.error('Event processing failed:', error);
+    }
+  }
+  
+  return results;
+}
+
+// ❌ Incorreto - Promise chains
+function processMultipleEvents(events: any[]) {
+  return Promise.all(
+    events.map(event => 
+      this.processEvent(event).catch(error => {
+        this.logger.error('Failed:', error);
+      })
+    )
+  );
+}
+```
+
+## 📋 Type Guards e Validação
+
+### Type Guards para Validação:
+```typescript
+// ✅ Correto - Type guards
+function isEventStructure(obj: any): obj is EventStructure {
+  return (
+    typeof obj === 'object' &&
+    typeof obj.path === 'string' &&
+    ['string', 'number', 'boolean', 'object', 'array', 'null', 'union'].includes(obj.type) &&
+    typeof obj.optional === 'boolean' &&
+    Array.isArray(obj.examples)
+  );
+}
+
+// Uso
+if (isEventStructure(data)) {
+  // TypeScript sabe que data é EventStructure
+  console.log(data.path);
+}
+```
+
+## 🏷️ Enums vs Union Types
+
+### Prefer Union Types para Valores Estáticos:
+```typescript
+// ✅ Correto - Union types
+type EventType = 'message' | 'picture' | 'business_name' | 'delete_chat';
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+// ❌ Evitar enums desnecessários
+enum EventType {
+  MESSAGE = 'message',
+  PICTURE = 'picture'
+}
+```
+
+### Usar const assertions:
+```typescript
+// ✅ Correto - const assertion
+const TRUNCATE_FIELDS = [
+  'base64', 
+  'JPEGThumbnail', 
+  'thumbnail', 
+  'data', 
+  'image'
+] as const;
+
+type TruncateField = typeof TRUNCATE_FIELDS[number];
+```
+
+## 🎭 Decorators e Metadata (Se Usar)
+
+### Evitar decorators experimentais:
+```typescript
+// ❌ Evitar - decorators experimentais
+@Injectable()
+class EventProcessor {
+  // implementação
+}
+
+// ✅ Preferir - injeção explícita
+class EventProcessor {
+  constructor(
+    private dependencies: EventProcessorDependencies
+  ) {}
+}
+```
+
+## 📚 Import/Export Patterns
+
+### SEMPRE usar named exports:
+```typescript
+// ✅ Correto - named exports
+export class EventAnalyzer { }
+export interface EventStructure { }
+export type ProcessResult = { };
+
+// ✅ Correto - barrel exports em index.ts
+export { EventAnalyzer } from './EventAnalyzer';
+export { EventStructure } from './types';
+
+// ❌ Evitar default exports
+export default class EventAnalyzer { }
+```
+
+### Path mapping para imports limpos:
+```typescript
+// tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "@/server/*": ["./src/server/*"],
+      "@/types/*": ["./src/types/*"]
+    }
+  }
+}
+
+// ✅ Import limpo
+import { EventAnalyzer } from '@/server/services/EventAnalyzer';
+```

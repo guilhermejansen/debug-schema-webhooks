@@ -1,0 +1,95 @@
+---
+globs: src/server/**/*.ts,*.ts
+description: Regras para desenvolvimento backend do sistema webhook mapper
+---
+
+# Regras de Desenvolvimento Backend
+
+## 🚀 Fastify Configuration
+- SEMPRE usar Fastify ao invés de Express para performance superior
+- Configurar bodyLimit para 100MB para suportar payloads grandes
+- Usar plugins oficiais: @fastify/cors, @fastify/helmet, @fastify/rate-limit
+- Implementar graceful shutdown em todos os serviços
+
+```typescript
+// ✅ Correto - Configuração Fastify
+const app = Fastify({
+  logger: true,
+  bodyLimit: 100 * 1024 * 1024 // 100MB
+});
+```
+
+## 🔄 Processamento Assíncrono
+- TODOS os webhooks devem ser processados via queue (BullMQ)
+- Responder IMEDIATAMENTE com 200 OK
+- Nunca bloquear o webhook com processamento pesado
+- Usar workers com concorrência configurável
+
+```typescript
+// ✅ Correto - Processamento assíncrono
+app.post('/webhook', async (request, reply) => {
+  await processor.addToQueue(request.body);
+  return reply.code(200).send({ status: 'ok' });
+});
+```
+
+## 📊 Logging Estruturado
+- Usar Logger customizado com contexto
+- Incluir sempre: timestamp, level, service, eventType
+- Log de entrada e saída de todos os métodos importantes
+- Evitar logs de dados sensíveis
+
+```typescript
+// ✅ Correto - Log estruturado
+this.logger.info({ 
+  eventType: event.eventType,
+  timestamp: Date.now(),
+  action: 'processing_started' 
+}, 'Starting event processing');
+```
+
+## 🗄️ Gerenciamento de Dados
+- SQLite para metadados e estatísticas
+- Sistema de arquivos para schemas gerados
+- Redis para queue e cache temporário
+- NUNCA salvar payloads completos no banco (apenas truncados)
+
+## 🛡️ Error Handling
+- Sempre usar try/catch em operações assíncronas
+- Retornar 200 mesmo em erro (não quebrar webhook)
+- Implementar retry com backoff exponencial
+- Logs detalhados de todos os erros
+
+```typescript
+// ✅ Correto - Error handling robusto
+try {
+  await this.processEvent(event);
+} catch (error) {
+  this.logger.error('Processing failed:', error);
+  // Ainda retorna 200 para não quebrar webhook
+  return reply.code(200).send({ status: 'error' });
+}
+```
+
+## 📝 Validação e Tipos
+- Usar Zod para validação de entrada
+- Interfaces TypeScript para todos os objetos
+- Validação no boundary (entrada da API)
+- Tipos explícitos, evitar `any`
+
+## 🔧 Dependência e Injeção
+- Serviços devem ser injetáveis
+- Constructor injection pattern
+- Interfaces para abstrações
+- Facilitar testes unitários
+
+```typescript
+// ✅ Correto - Injeção de dependência
+export class EventProcessor {
+  constructor(
+    private analyzer: EventAnalyzer,
+    private generator: SchemaGenerator,
+    private fileManager: FileManager
+  ) {}
+}
+```

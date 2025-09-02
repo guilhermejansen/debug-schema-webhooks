@@ -1,0 +1,640 @@
+---
+globs: **/*.test.ts,**/*.spec.ts,jest.config.js,*.test.tsx,**/*.spec.tsx
+description: Regras para testes unitários, integração e qualidade de código
+---
+
+# Testes e Qualidade de Código
+
+## 🧪 Estrutura de Testes OBRIGATÓRIA
+
+### Organização de Arquivos de Teste:
+```
+tests/
+├── unit/                    # Testes unitários
+│   ├── services/
+│   │   ├── EventAnalyzer.test.ts
+│   │   ├── TruncateService.test.ts
+│   │   ├── SchemaGenerator.test.ts
+│   │   └── SchemaComparator.test.ts
+│   └── utils/
+│       ├── TypeDetector.test.ts
+│       └── Hasher.test.ts
+├── integration/             # Testes de integração
+│   ├── webhook.test.ts
+│   ├── queue.test.ts
+│   └── file-system.test.ts
+└── fixtures/               # Dados de teste
+    ├── events/
+    │   ├── message-event.json
+    │   ├── picture-event.json
+    │   └── truncated-event.json
+    └── schemas/
+        ├── expected-zod.ts
+        └── expected-interface.ts
+```
+
+## 🎯 Jest Configuration
+
+### jest.config.js OBRIGATÓRIO:
+```javascript
+// ✅ jest.config.js
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  testMatch: [
+    '**/__tests__/**/*.+(ts|tsx|js)',
+    '**/*.(test|spec).+(ts|tsx|js)'
+  ],
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest'
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/server/index.ts', // Entry point
+    '!src/dashboard/**/*'    // Frontend separado
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  },
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  testTimeout: 10000
+};
+```
+
+## 🔬 Padrões de Testes Unitários
+
+### TruncateService Tests:
+```typescript
+// ✅ tests/unit/services/TruncateService.test.ts
+import { TruncateService } from '../../../src/server/services/TruncateService';
+
+describe('TruncateService', () => {
+  let service: TruncateService;
+
+  beforeEach(() => {
+    service = new TruncateService();
+  });
+
+  describe('truncateEvent', () => {
+    it('should truncate base64 fields correctly', () => {
+      // Arrange
+      const event = {
+        eventType: 'Picture',
+        body: {
+          data: {
+            image: 'iVBORw0KGgoAAAANSUhEUgAAA'.repeat(100), // Campo grande
+            thumbnail: 'smallthumb'
+          }
+        }
+      };
+
+      // Act
+      const { truncated, metadata } = service.truncateEvent(event);
+
+      // Assert
+      expect(truncated.body.data.image).toContain('[TRUNCATED]');
+      expect(truncated.body.data.image.length).toBeLessThanOrEqual(103); // 100 + '[TRUNCATED]'
+      expect(truncated.body.data.thumbnail).toBe('smallthumb'); // Não truncado
+      
+      expect(metadata.hasTruncated).toBe(true);
+      expect(metadata.truncatedFields).toHaveLength(1);
+      expect(metadata.truncatedFields[0].path).toBe('body.data.image');
+      expect(metadata.truncatedFields[0].type).toBe('base64');
+    });
+
+    it('should preserve structure when truncating', () => {
+      // Arrange
+      const event = {
+        nested: {
+          array: [
+            { id: 1, data: 'a'.repeat(200) },
+            { id: 2, data: 'normal' }
+          ]
+        }
+      };
+
+      // Act
+      const { truncated } = service.truncateEvent(event);
+
+      // Assert
+      expect(truncated.nested.array).toHaveLength(2);
+      expect(truncated.nested.array[0].id).toBe(1);
+      expect(truncated.nested.array[0].data).toContain('[TRUNCATED]');
+      expect(truncated.nested.array[1].data).toBe('normal');
+    });
+
+    it('should handle null and undefined values', () => {
+      // Arrange
+      const event = {
+        nullField: null,
+        undefinedField: undefined,
+        emptyString: '',
+        zeroNumber: 0
+      };
+
+      // Act
+      const { truncated, metadata } = service.truncateEvent(event);
+
+      // Assert
+      expect(truncated.nullField).toBeNull();
+      expect(truncated.undefinedField).toBeUndefined();
+      expect(truncated.emptyString).toBe('');
+      expect(truncated.zeroNumber).toBe(0);
+      expect(metadata.hasTruncated).toBe(false);
+    });
+  });
+
+  describe('detectFieldType', () => {
+    it('should detect base64 strings correctly', () => {
+      const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+      
+      expect(service['detectFieldType'](base64)).toBe('base64');
+    });
+
+    it('should detect JSON strings', () => {
+      const jsonString = JSON.stringify({ key: 'value' });
+      
+      expect(service['detectFieldType'](jsonString)).toBe('json');
+    });
+
+    it('should default to text for other strings', () => {
+      expect(service['detectFieldType']('regular text')).toBe('text');
+    });
+  });
+});
+```
+
+### EventAnalyzer Tests:
+```typescript
+// ✅ tests/unit/services/EventAnalyzer.test.ts
+import { EventAnalyzer } from '../../../src/server/services/EventAnalyzer';
+import { TruncateService } from '../../../src/server/services/TruncateService';
+
+// Mock do TruncateService
+jest.mock('../../../src/server/services/TruncateService');
+
+describe('EventAnalyzer', () => {
+  let analyzer: EventAnalyzer;
+  let mockTruncateService: jest.Mocked<TruncateService>;
+
+  beforeEach(() => {
+    mockTruncateService = new TruncateService() as jest.Mocked<TruncateService>;
+    analyzer = new EventAnalyzer();
+    (analyzer as any).truncateService = mockTruncateService;
+  });
+
+  describe('extractEventType', () => {
+    it('should extract eventType from direct field', () => {
+      const event = { eventType: 'Message' };
+      
+      expect(analyzer.extractEventType(event)).toBe('Message');
+    });
+
+    it('should extract eventType from body.eventType', () => {
+      const event = { body: { eventType: 'Picture' } };
+      
+      expect(analyzer.extractEventType(event)).toBe('Picture');
+    });
+
+    it('should detect message events from structure', () => {
+      const event = {
+        body: {
+          data: {
+            event: {
+              message: { text: 'Hello' }
+            }
+          }
+        }
+      };
+      
+      expect(analyzer.extractEventType(event)).toBe('Message');
+    });
+
+    it('should return unknown for unrecognized structure', () => {
+      const event = { randomField: 'value' };
+      
+      expect(analyzer.extractEventType(event)).toBe('Unknown');
+    });
+  });
+
+  describe('buildStructureMap', () => {
+    it('should build correct structure for simple object', () => {
+      const obj = {
+        name: 'John',
+        age: 30,
+        active: true
+      };
+
+      const structure = analyzer.buildStructureMap(obj);
+
+      expect(structure.type).toBe('object');
+      expect(structure.children?.size).toBe(3);
+      expect(structure.children?.get('name')?.type).toBe('string');
+      expect(structure.children?.get('age')?.type).toBe('number');
+      expect(structure.children?.get('active')?.type).toBe('boolean');
+    });
+
+    it('should handle arrays correctly', () => {
+      const obj = {
+        items: [1, 2, 3],
+        mixed: ['string', 123, true]
+      };
+
+      const structure = analyzer.buildStructureMap(obj);
+
+      expect(structure.children?.get('items')?.type).toBe('array');
+      expect(structure.children?.get('items')?.arrayItemType?.type).toBe('number');
+      
+      expect(structure.children?.get('mixed')?.type).toBe('union');
+    });
+
+    it('should mark truncated fields correctly', () => {
+      const truncateMetadata = {
+        truncatedFields: [{ path: 'image', type: 'base64' }]
+      };
+
+      const obj = { image: 'truncated...[TRUNCATED]' };
+      const structure = analyzer.buildStructureMap(obj, '', truncateMetadata);
+
+      expect(structure.children?.get('image')?.isTruncated).toBe(true);
+      expect(structure.children?.get('image')?.originalType).toBe('base64');
+    });
+  });
+});
+```
+
+## 🔗 Testes de Integração
+
+### Webhook Integration Test:
+```typescript
+// ✅ tests/integration/webhook.test.ts
+import { FastifyInstance } from 'fastify';
+import { createTestServer } from '../helpers/test-server';
+import { EventProcessor } from '../../src/server/queue/processors/EventProcessor';
+
+// Mock do EventProcessor
+jest.mock('../../src/server/queue/processors/EventProcessor');
+
+describe('Webhook Integration', () => {
+  let app: FastifyInstance;
+  let mockEventProcessor: jest.Mocked<EventProcessor>;
+
+  beforeAll(async () => {
+    mockEventProcessor = new EventProcessor() as jest.Mocked<EventProcessor>;
+    mockEventProcessor.addToQueue.mockResolvedValue(undefined);
+    
+    app = await createTestServer({
+      eventProcessor: mockEventProcessor
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  describe('POST /webhook', () => {
+    it('should accept valid webhook events', async () => {
+      const event = {
+        eventType: 'Message',
+        body: {
+          data: {
+            event: {
+              message: {
+                text: 'Hello World'
+              }
+            }
+          }
+        }
+      };
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook',
+        payload: event
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toMatchObject({
+        status: 'ok',
+        message: expect.stringContaining('queued')
+      });
+      
+      expect(mockEventProcessor.addToQueue).toHaveBeenCalledWith(event);
+    });
+
+    it('should handle large payloads', async () => {
+      const largeEvent = {
+        eventType: 'Picture',
+        body: {
+          data: {
+            image: 'a'.repeat(50 * 1024 * 1024) // 50MB
+          }
+        }
+      };
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook',
+        payload: largeEvent
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('should return 200 even on processing errors', async () => {
+      mockEventProcessor.addToQueue.mockRejectedValueOnce(new Error('Queue failed'));
+
+      const event = { eventType: 'Test' };
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook',
+        payload: event
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload).status).toBe('error');
+    });
+  });
+
+  describe('GET /webhook/health', () => {
+    it('should return health status', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/webhook/health'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toMatchObject({
+        status: 'healthy',
+        timestamp: expect.any(Number)
+      });
+    });
+  });
+});
+```
+
+## 📊 Test Fixtures e Helpers
+
+### Test Helper para Server:
+```typescript
+// ✅ tests/helpers/test-server.ts
+import Fastify, { FastifyInstance } from 'fastify';
+import { webhookRoutes } from '../../src/server/routes/webhook';
+
+interface TestServerConfig {
+  eventProcessor?: any;
+  logger?: boolean;
+}
+
+export async function createTestServer(config: TestServerConfig = {}): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: config.logger || false
+  });
+
+  // Registra rotas
+  await app.register(webhookRoutes);
+
+  // Inject dependencies se necessário
+  if (config.eventProcessor) {
+    app.decorate('eventProcessor', config.eventProcessor);
+  }
+
+  return app;
+}
+```
+
+### Fixtures de Eventos:
+```typescript
+// ✅ tests/fixtures/events.ts
+export const messageEvent = {
+  eventType: 'Message',
+  body: {
+    data: {
+      event: {
+        message: {
+          text: 'Hello, this is a test message',
+          timestamp: 1640995200
+        }
+      }
+    }
+  }
+};
+
+export const pictureEvent = {
+  eventType: 'Picture', 
+  body: {
+    data: {
+      event: {
+        message: {
+          image: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='.repeat(1000),
+          JPEGThumbnail: '/9j/4AAQSkZJRgABAQEAYABgAAD'.repeat(500)
+        }
+      }
+    }
+  }
+};
+
+export const businessNameEvent = {
+  eventType: 'BusinessName',
+  body: {
+    data: {
+      event: {
+        businessName: 'Test Business'
+      }
+    }
+  }
+};
+```
+
+## 🧹 Setup e Teardown de Testes
+
+### Global Setup:
+```typescript
+// ✅ tests/setup.ts
+import { promises as fs } from 'fs';
+import path from 'path';
+
+// Mock console para testes mais limpos
+const originalConsole = global.console;
+
+beforeEach(() => {
+  global.console = {
+    ...originalConsole,
+    log: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  } as any;
+});
+
+afterEach(() => {
+  global.console = originalConsole;
+  jest.clearAllMocks();
+});
+
+// Cleanup de arquivos de teste
+afterAll(async () => {
+  const testDirs = ['./test-schemas', './test-data', './test-logs'];
+  
+  for (const dir of testDirs) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch (error) {
+      // Ignora erros de cleanup
+    }
+  }
+});
+
+// Timeout global para operações assíncronas
+jest.setTimeout(10000);
+```
+
+## 📈 Coverage e Qualidade
+
+### Scripts package.json:
+```json
+{
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:unit": "jest --testPathPattern=unit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit"
+  }
+}
+```
+
+### ESLint para Testes:
+```json
+// ✅ .eslintrc.json - Regras para testes
+{
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.spec.ts"],
+      "env": {
+        "jest": true
+      },
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "max-lines-per-function": "off"
+      }
+    }
+  ]
+}
+```
+
+## 🎯 Metas de Qualidade OBRIGATÓRIAS
+
+### Coverage Mínimo:
+- **80%** de cobertura de linhas
+- **80%** de cobertura de funções  
+- **80%** de cobertura de branches
+- **100%** para services críticos (TruncateService, EventAnalyzer)
+
+### Performance Tests:
+```typescript
+// ✅ Exemplo de teste de performance
+describe('Performance Tests', () => {
+  it('should process 1000 events within 5 seconds', async () => {
+    const events = Array(1000).fill(messageEvent);
+    const startTime = Date.now();
+    
+    for (const event of events) {
+      await eventProcessor.processEvent(event);
+    }
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    expect(duration).toBeLessThan(5000); // 5 segundos
+  });
+
+  it('should handle 100MB payload without timeout', async () => {
+    const largeEvent = {
+      ...pictureEvent,
+      body: {
+        ...pictureEvent.body,
+        data: {
+          ...pictureEvent.body.data,
+          image: 'a'.repeat(100 * 1024 * 1024) // 100MB
+        }
+      }
+    };
+
+    const startTime = Date.now();
+    await eventProcessor.processEvent(largeEvent);
+    const duration = Date.now() - startTime;
+
+    expect(duration).toBeLessThan(30000); // 30 segundos max
+  });
+});
+```
+
+## 🚀 CI/CD Integration
+
+### GitHub Actions Test Workflow:
+```yaml
+# ✅ .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Type check
+        run: npm run type-check
+      
+      - name: Lint
+        run: npm run lint
+      
+      - name: Unit tests
+        run: npm run test:unit
+      
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+      
+      - name: Coverage
+        run: npm run test:coverage
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+```

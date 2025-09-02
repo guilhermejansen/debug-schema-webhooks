@@ -1,0 +1,171 @@
+---
+globs: src/server/services/*Schema*.ts,src/server/services/*Truncate*.ts,schemas/**/*
+description: Regras para geração de schemas Zod, truncamento e organização de arquivos
+---
+
+# Regras de Geração e Organização de Schemas
+
+## ✂️ Truncamento de Campos Grandes
+
+### Campos que DEVEM ser truncados:
+- `base64` - Dados de imagem em base64
+- `JPEGThumbnail` - Thumbnails JPEG
+- `thumbnail` - Qualquer tipo de thumbnail
+- `data` - Campos de dados grandes
+- `image` - Dados de imagem
+
+### Configuração de Truncamento:
+```typescript
+// ✅ Correto - Configuração padrão
+private readonly config: TruncateConfig = {
+  maxLength: 100,
+  fields: ['base64', 'JPEGThumbnail', 'thumbnail', 'data', 'image'],
+  preserveStructure: true
+};
+```
+
+### Marcação de Campos Truncados:
+- SEMPRE adicionar `[TRUNCATED]` no final
+- Preservar início do campo para análise de tipo
+- Salvar metadata sobre truncamento
+- Manter exemplos completos em `raw-samples/`
+
+```typescript
+// ✅ Correto - String truncada
+"data": "iVBORw0KGgoAAAANSUhEUgAA...[TRUNCATED]"
+```
+
+## 📁 Organização de Arquivos Gerados
+
+### Estrutura OBRIGATÓRIA para cada tipo de evento:
+```
+schemas/
+├── Message/
+│   ├── schema.zod.ts      # Schema Zod principal
+│   ├── interface.ts       # Interface TypeScript
+│   ├── examples.json      # Exemplos truncados
+│   ├── metadata.json      # Metadados e estatísticas
+│   └── raw-samples/       # Amostras completas
+│       ├── sample-001.json
+│       └── sample-002.json
+└── Picture/
+    ├── schema.zod.ts
+    ├── interface.ts
+    └── ...
+```
+
+### Nomenclatura dos Arquivos:
+- Nome da pasta: PascalCase (`Message`, `BusinessName`)
+- Arquivos de schema: sempre `schema.zod.ts`
+- Interface: sempre `interface.ts`
+- Samples: formato `sample-{timestamp}.json`
+
+## 🎯 Geração de Schema Zod
+
+### Padrões Obrigatórios:
+```typescript
+// ✅ Correto - Schema Zod com comentários
+import { z } from 'zod';
+
+export const MessageSchema = z.object({
+  eventType: z.string(),
+  body: z.object({
+    data: z.string().describe('TRUNCATED FIELD - Original type: base64'),
+    timestamp: z.number()
+  })
+});
+
+export type Message = z.infer<typeof MessageSchema>;
+```
+
+### Campos Opcionais vs Obrigatórios:
+- Campo aparece em TODOS os eventos → Obrigatório
+- Campo aparece em ALGUNS eventos → `.optional()`
+- NUNCA assumir obrigatoriedade sem evidência
+
+### Comentários Descritivos:
+- Campos truncados DEVEM ter `.describe()` com tipo original
+- Exemplos de valores quando possível
+- Indicar se campo é calculado ou vem do webhook
+
+## 🔍 Detecção e Comparação de Estruturas
+
+### Hash de Estrutura:
+- NUNCA incluir valores no hash
+- APENAS estrutura: tipos, opcionalidade, aninhamento
+- Hash SHA-256 da estrutura normalizada
+- Usado para deduplicação automática
+
+### Merge de Estruturas:
+```typescript
+// ✅ Correto - Merge preservando opcionalidade
+if (existingField && newField) {
+  // Campo existe em ambos
+  merged.children.set(key, this.mergeStructures(existing, new));
+} else if (existingField) {
+  // Campo só no existente → marca como opcional
+  existingField.optional = true;
+}
+```
+
+## 📊 Metadata e Estatísticas
+
+### Formato metadata.json:
+```json
+{
+  "eventType": "Message",
+  "firstSeen": "2024-01-01T00:00:00.000Z",
+  "lastSeen": "2024-01-01T12:00:00.000Z", 
+  "totalReceived": 150,
+  "schemaVersion": 3,
+  "fields": {
+    "required": ["eventType", "body.timestamp"],
+    "optional": ["body.data"],
+    "truncated": ["body.image", "body.thumbnail"]
+  },
+  "variations": [
+    {
+      "hash": "abc123...",
+      "count": 120,
+      "description": "Versão com thumbnail"
+    }
+  ]
+}
+```
+
+## 🧹 Limpeza e Manutenção
+
+### Limite de Amostras:
+- Máximo 10 samples por tipo de evento
+- Remover samples mais antigos automaticamente
+- Manter pelo menos 1 sample sempre
+
+### Limite de Exemplos:
+- Máximo 20 exemplos no metadata
+- Rotacionar exemplos (FIFO)
+- Preservar diversidade de estruturas
+
+## 🔄 Versionamento de Schemas
+
+### Quando Incrementar Versão:
+- Nova propriedade obrigatória detectada
+- Mudança de tipo de campo existente
+- Remoção de propriedade anteriormente obrigatória
+
+### Quando NÃO Incrementar:
+- Apenas novos valores para campos existentes
+- Nova propriedade opcional
+- Campos truncados com tamanhos diferentes
+
+## ⚡ Performance
+
+### Otimizações Obrigatórias:
+- Processar schema generation em queue worker
+- Cache de estruturas já processadas
+- Evitar re-parsing de arquivos grandes
+- Batch de múltiplas mudanças de schema
+
+### Limites de Recursos:
+- Máximo 100MB por payload
+- Timeout de 30s para análise de estrutura
+- Máximo 1000 propriedades por objeto

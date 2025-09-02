@@ -1,0 +1,168 @@
+{
+  "whatsmeow_event_examples": {
+    "description": "Exemplos de eventos do whatsmeow para testar detecção de tipos",
+    "examples": [
+      {
+        "type": "QR",
+        "event": {
+          "codes": [
+            "1@abc123,def456,ghi789",
+            "2@jkl012,mno345,pqr678"
+          ]
+        },
+        "expected_type": "QR",
+        "expected_priority": 1
+      },
+      {
+        "type": "PairSuccess",
+        "event": {
+          "id": "554199999999@s.whatsapp.net",
+          "lid": "554199999999:1@lid",
+          "businessname": "My Business",
+          "platform": "android"
+        },
+        "expected_type": "PairSuccess",
+        "expected_priority": 4
+      },
+      {
+        "type": "Message",
+        "event": {
+          "info": {
+            "id": "ABC123",
+            "chat": "554199999999@s.whatsapp.net",
+            "sender": "554188888888@s.whatsapp.net",
+            "timestamp": "2024-01-01T10:00:00Z"
+          },
+          "message": {
+            "conversation": "Hello, this is a text message!"
+          }
+        },
+        "expected_type": "Message",
+        "expected_priority": 15
+      },
+      {
+        "type": "Picture",
+        "event": {
+          "jid": "554199999999@s.whatsapp.net",
+          "author": "554188888888@s.whatsapp.net",
+          "timestamp": "2024-01-01T10:00:00Z",
+          "pictureid": "pic123",
+          "remove": false
+        },
+        "expected_type": "Picture",
+        "expected_priority": 11
+      },
+      {
+        "type": "Receipt",
+        "event": {
+          "messageids": ["ABC123", "DEF456"],
+          "timestamp": "2024-01-01T10:00:00Z",
+          "type": "read",
+          "chat": "554199999999@s.whatsapp.net",
+          "sender": "554188888888@s.whatsapp.net"
+        },
+        "expected_type": "Receipt",
+        "expected_priority": 5
+      },
+      {
+        "type": "GroupInfo",
+        "event": {
+          "jid": "120363123456789012@g.us",
+          "sender": "554188888888@s.whatsapp.net",
+          "timestamp": "2024-01-01T10:00:00Z",
+          "name": {
+            "name": "New Group Name",
+            "setby": "554188888888@s.whatsapp.net",
+            "settime": "2024-01-01T10:00:00Z"
+          }
+        },
+        "expected_type": "GroupInfo",
+        "expected_priority": 7
+      },
+      {
+        "type": "Presence",
+        "event": {
+          "from": "554188888888@s.whatsapp.net",
+          "unavailable": false,
+          "lastseen": "2024-01-01T09:45:00Z"
+        },
+        "expected_type": "Presence",
+        "expected_priority": 4
+      },
+      {
+        "type": "UndecryptableMessage",
+        "event": {
+          "info": {
+            "id": "ABC123",
+            "chat": "554199999999@s.whatsapp.net",
+            "sender": "554188888888@s.whatsapp.net",
+            "timestamp": "2024-01-01T10:00:00Z"
+          },
+          "isunavailable": true,
+          "unavailabletype": "view_once"
+        },
+        "expected_type": "UndecryptableMessage",
+        "expected_priority": 12
+      },
+      {
+        "type": "HistorySync",
+        "event": {
+          "data": {
+            "synctype": "full",
+            "conversations": [],
+            "messages": []
+          }
+        },
+        "expected_type": "HistorySync",
+        "expected_priority": 3
+      },
+      {
+        "type": "NewsletterJoin",
+        "event": {
+          "newsletter": {
+            "id": "120363123456789012@newsletter",
+            "name": "Newsletter Name",
+            "description": "Newsletter Description"
+          },
+          "action": "join"
+        },
+        "expected_type": "NewsletterJoin",
+        "expected_priority": 6
+      },
+      {
+        "type": "LoggedOut",
+        "event": {
+          "onconnect": true,
+          "reason": "logged_out"
+        },
+        "expected_type": "LoggedOut",
+        "expected_priority": 8
+      },
+      {
+        "type": "KeepAliveTimeout",
+        "event": {
+          "errorcount": 3,
+          "lastsuccess": "2024-01-01T09:30:00Z"
+        },
+        "expected_type": "KeepAliveTimeout",
+        "expected_priority": 2
+      },
+      {
+        "type": "Legacy_WhatsApp_Structure",
+        "event": {
+          "body": {
+            "data": {
+              "event": {
+                "message": {
+                  "text": "This is a legacy format message"
+                }
+              }
+            }
+          }
+        },
+        "expected_type": "Message",
+        "expected_priority": 15
+      }
+    ]
+  }
+}
