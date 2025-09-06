@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Redis para BullMQ queue
   redis:
@@ -33,6 +31,7 @@ services:
     volumes:
       - ./schemas:/app/schemas
       - ./data:/app/data
+      - ./logs:/app/logs
       - ./.env:/app/.env:ro
     environment:
       - NODE_ENV=production

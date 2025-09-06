@@ -59,7 +59,7 @@ Thumbs.db
 .dockerignore
 
 # PM2
-ecosystem.config.js
+# ecosystem.config.js - needed for Docker deployment
 
 # Temporary files
 tmp/
