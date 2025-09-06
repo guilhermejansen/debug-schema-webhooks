@@ -21,13 +21,13 @@ export class EventAnalyzer {
   analyzeEvent(event: any): EventAnalysisResult {
     this.logger.debug('Starting event analysis');
 
-    // Primeiro trunca o evento
+    // IMPORTANTE: Extrai o tipo ANTES de truncar (para preservar headers)
+    const eventType = this.extractEventType(event);
+    
+    // Depois trunca o evento para análise da estrutura
     const { truncated, metadata } = this.truncateService.truncateEvent(event);
     
-    // Extrai o tipo do evento (mantém path para diretórios)
-    const eventType = this.extractEventType(truncated);
-    
-    // Analisa a estrutura
+    // Analisa a estrutura do evento truncado
     const structure = this.buildStructureMap(truncated, '', metadata);
     
     this.logger.debug('Event analysis completed', {
@@ -68,36 +68,57 @@ export class EventAnalyzer {
    * Extrai o tipo do evento usando várias estratégias
    */
   extractEventType(event: any): string {
-    // Estratégia PRIORITÁRIA: WhatsApp Business Account (Meta API)
+    // Log para debug
+    this.logger.debug('Extracting event type', {
+      hasHeaders: !!event.headers,
+      hasBody: !!event.body,
+      headerServer: event.headers?.server,
+      headerOrigin: event.headers?.origin,
+      bodyType: event.body?.type || event.type
+    });
+    
+    // Estratégia PRIORITÁRIA 1: Z-API Detection
+    if (this.isZApiEvent(event)) {
+      this.logger.debug('Detected as Z-API event');
+      return this.detectZApiEventType(event);
+    }
+    
+    // Estratégia PRIORITÁRIA 2: WhatsApp Business Account (Meta API)
     if (this.isWhatsAppBusinessAccount(event)) {
       return this.detectWhatsAppBusinessEventType(event);
     }
     
-    // Estratégia 1: Campo eventType direto
+    // Estratégia 3: Campo eventType direto (ZuckZapGo)
     if (event.eventType && typeof event.eventType === 'string') {
       return this.normalizeEventType(event.eventType);
     }
     
-    // Estratégia 2: Campo body.eventType
+    // Estratégia 4: Campo body.eventType
     if (event.body?.eventType && typeof event.body.eventType === 'string') {
       return this.normalizeEventType(event.body.eventType);
     }
     
-    // Estratégia 3: Campo body.data.type
+    // Estratégia 5: Campo body.data.type
     if (event.body?.data?.type && typeof event.body.data.type === 'string') {
       return this.normalizeEventType(event.body.data.type);
     }
     
-    // Estratégia 4: Baseado na estrutura do evento WhatsApp
+    // Estratégia 6: Baseado na estrutura do evento WhatsApp
     const structuralType = this.detectEventTypeFromStructure(event);
     if (structuralType !== 'Unknown') {
       return structuralType;
     }
     
-    // Estratégia 5: Baseado em campos-chave presentes
+    // Estratégia 7: Baseado em campos-chave presentes
     const keyBasedType = this.detectEventTypeFromKeys(event);
     if (keyBasedType !== 'Unknown') {
       return keyBasedType;
+    }
+    
+    // Estratégia 8: Provider genérico
+    const genericType = this.detectGenericEventType(event);
+    if (genericType !== 'Unknown') {
+      return genericType;
     }
     
     this.logger.warn('Could not determine event type, using Unknown', {
@@ -179,11 +200,353 @@ export class EventAnalyzer {
         // Atualizações de capacidades do negócio
         return `${basePrefix}/capability_update`;
         
+      case 'smb_message_echoes':
+        // Mensagens enviadas pelo business (echo)
+        return `${basePrefix}/smb_message_echoes`;
+        
       default:
         // Tipo genérico para novos campos
         this.logger.warn('Unknown WhatsApp Business field, using generic type', { field });
         return `${basePrefix}/${field || 'webhook'}`;
     }
+  }
+
+  /**
+   * Verifica se é um evento da Z-API
+   */
+  private isZApiEvent(event: any): boolean {
+    // Verifica pelos headers Z-API ou pela estrutura
+    if (event.headers?.server === 'Z-API' || 
+        event.headers?.origin?.includes('z-api.io')) {
+      return true;
+    }
+    
+    // Verifica pela estrutura do body
+    if (event.body?.type && event.body?.instanceId) {
+      const knownZApiTypes = [
+        'ReceivedCallback', 'SentCallback', 
+        'MessageStatusCallback', 'PresenceChatCallback',
+        'ConnectedCallback', 'DisconnectedCallback',
+        'QrcodeCallback', 'StatusCallback'
+      ];
+      return knownZApiTypes.includes(event.body.type);
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detecta tipo específico do evento Z-API
+   */
+  private detectZApiEventType(event: any): string {
+    const body = event.body || event;
+    const basePrefix = 'z_api';
+    
+    // Tipo principal do evento
+    const mainType = body.type || 'unknown';
+    
+    switch (mainType) {
+      case 'ReceivedCallback':
+        // Detecta sub-tipo baseado no conteúdo - ordem importante para detecção correta
+        if (body.text?.message) return `${basePrefix}/received_callback/text`;
+        if (body.image?.imageUrl || body.image) return `${basePrefix}/received_callback/image`;
+        if (body.sticker?.stickerUrl || body.sticker) return `${basePrefix}/received_callback/sticker`;
+        if (body.audio?.audioUrl || body.audio) return `${basePrefix}/received_callback/audio`;
+        if (body.video?.videoUrl || body.video) return `${basePrefix}/received_callback/video`;
+        if (body.document?.documentUrl || body.document) return `${basePrefix}/received_callback/document`;
+        if (body.location?.latitude || body.location) return `${basePrefix}/received_callback/location`;
+        if (body.contact?.displayName || body.contact) return `${basePrefix}/received_callback/contact`;
+        if (body.poll?.name || body.poll) return `${basePrefix}/received_callback/poll`;
+        if (body.reaction) return `${basePrefix}/received_callback/reaction`;
+        if (body.order) return `${basePrefix}/received_callback/order`;
+        if (body.payment) return `${basePrefix}/received_callback/payment`;
+        if (body.buttons) return `${basePrefix}/received_callback/buttons`;
+        if (body.list) return `${basePrefix}/received_callback/list`;
+        // Se é de grupo ou não
+        if (body.isGroup) {
+          return `${basePrefix}/received_callback/group_message`;
+        }
+        return `${basePrefix}/received_callback/unknown`;
+        
+      case 'SentCallback':
+        // Similar ao received mas para mensagens enviadas
+        if (body.text?.message) return `${basePrefix}/sent_callback/text`;
+        if (body.image?.imageUrl || body.image) return `${basePrefix}/sent_callback/image`;
+        if (body.sticker?.stickerUrl || body.sticker) return `${basePrefix}/sent_callback/sticker`;
+        if (body.audio?.audioUrl || body.audio) return `${basePrefix}/sent_callback/audio`;
+        if (body.video?.videoUrl || body.video) return `${basePrefix}/sent_callback/video`;
+        if (body.document?.documentUrl || body.document) return `${basePrefix}/sent_callback/document`;
+        if (body.location) return `${basePrefix}/sent_callback/location`;
+        if (body.contact) return `${basePrefix}/sent_callback/contact`;
+        return `${basePrefix}/sent_callback/unknown`;
+        
+      case 'MessageStatusCallback':
+        // Status de mensagens (READ, DELIVERED, SENT, PLAYED, DELETED, etc.)
+        const status = body.status?.toLowerCase() || 'unknown';
+        // Se for de grupo, indica no path
+        if (body.isGroup) {
+          return `${basePrefix}/message_status/group_${status}`;
+        }
+        return `${basePrefix}/message_status/${status}`;
+        
+      case 'PresenceChatCallback':
+        // Presença (AVAILABLE, COMPOSING, RECORDING, PAUSED, etc.)
+        const presenceStatus = body.status?.toLowerCase() || 'unknown';
+        return `${basePrefix}/presence_chat/${presenceStatus}`;
+        
+      case 'ConnectedCallback':
+        // Evento de conexão estabelecida
+        return `${basePrefix}/connected`;
+        
+      case 'DisconnectedCallback':
+        // Evento de desconexão
+        return `${basePrefix}/disconnected`;
+        
+      case 'QrcodeCallback':
+        // QR Code para autenticação
+        return `${basePrefix}/qrcode`;
+        
+      case 'StatusCallback':
+        // Status da instância
+        return `${basePrefix}/status`;
+        
+      case 'InstanceCallback':
+        // Eventos da instância
+        return `${basePrefix}/instance`;
+        
+      case 'ProfileCallback':
+        // Atualizações de perfil
+        return `${basePrefix}/profile`;
+        
+      case 'GroupCallback':
+        // Eventos de grupo
+        if (body.action) {
+          return `${basePrefix}/group/${body.action.toLowerCase()}`;
+        }
+        return `${basePrefix}/group`;
+        
+      case 'CallCallback':
+        // Eventos de chamada
+        if (body.callStatus) {
+          return `${basePrefix}/call/${body.callStatus.toLowerCase()}`;
+        }
+        return `${basePrefix}/call`;
+        
+      case 'ChatCallback':
+        // Eventos de chat
+        if (body.action) {
+          return `${basePrefix}/chat/${body.action.toLowerCase()}`;
+        }
+        return `${basePrefix}/chat`;
+        
+      case 'DeviceCallback':
+        // Eventos de dispositivo
+        return `${basePrefix}/device`;
+        
+      case 'ErrorCallback':
+        // Eventos de erro
+        return `${basePrefix}/error`;
+        
+      default:
+        this.logger.warn('Unknown Z-API event type', { type: mainType });
+        // Tenta usar o tipo como está, em lowercase
+        return `${basePrefix}/${mainType.toLowerCase().replace(/callback$/i, '')}`;
+    }
+  }
+
+  /**
+   * Detecta eventos de providers genéricos
+   */
+  private detectGenericEventType(event: any): string {
+    // Primeiro tenta detectar o provider
+    const provider = this.detectProvider(event);
+    
+    // Tenta encontrar campo de tipo comum
+    const possibleTypeFields = [
+      'event', 'eventType', 'type', 'evento', 'events',
+      'webhook_event', 'webhookEvent', 'event_type', 'eventName',
+      'action', 'message_type', 'messageType', 'notification_type',
+      'notificationType', 'callback_type', 'callbackType', 'webhook_type'
+    ];
+    
+    // Procura em vários níveis do objeto
+    const searchPaths = [
+      event,
+      event.body,
+      event.data,
+      event.payload,
+      event.message,
+      event.notification
+    ];
+    
+    for (const searchPath of searchPaths) {
+      if (!searchPath || typeof searchPath !== 'object') continue;
+      
+      for (const field of possibleTypeFields) {
+        if (searchPath[field] && typeof searchPath[field] === 'string') {
+          const eventType = this.normalizeEventType(searchPath[field]);
+          return `${provider}/${eventType}`;
+        }
+      }
+    }
+    
+    // Tenta detectar tipo pela estrutura
+    const structuralType = this.detectTypeByStructure(event);
+    if (structuralType) {
+      return `${provider}/${structuralType}`;
+    }
+    
+    // Se não conseguiu detectar tipo específico
+    return `${provider}/webhook`;
+  }
+  
+  /**
+   * Detecta o provider do evento
+   */
+  private detectProvider(event: any): string {
+    // Headers comuns que indicam origem
+    const headers = event.headers || {};
+    
+    // Por origem/URL
+    if (headers.origin || headers['x-forwarded-host']) {
+      const origin = headers.origin || headers['x-forwarded-host'];
+      const provider = this.extractProviderFromOrigin(origin);
+      if (provider) return provider;
+    }
+    
+    // Por User-Agent
+    if (headers['user-agent']) {
+      const provider = this.extractProviderFromUserAgent(headers['user-agent']);
+      if (provider) return provider;
+    }
+    
+    // Por headers customizados
+    const customHeaders = [
+      'x-provider', 'x-api-provider', 'x-webhook-provider',
+      'x-service', 'x-platform', 'x-source'
+    ];
+    
+    for (const header of customHeaders) {
+      if (headers[header]) {
+        return this.normalizeProviderName(headers[header]);
+      }
+    }
+    
+    // Por campos no body que indicam provider
+    const body = event.body || event;
+    const providerFields = [
+      'provider', 'platform', 'source', 'api', 'service',
+      'vendor', 'integration', 'channel'
+    ];
+    
+    for (const field of providerFields) {
+      if (body[field] && typeof body[field] === 'string') {
+        return this.normalizeProviderName(body[field]);
+      }
+    }
+    
+    // Provider não identificado
+    return 'generic';
+  }
+  
+  /**
+   * Extrai provider do User-Agent
+   */
+  private extractProviderFromUserAgent(userAgent: string): string | null {
+    const ua = userAgent.toLowerCase();
+    
+    // Patterns comuns em User-Agents de APIs
+    const patterns = [
+      { pattern: /baileys/i, provider: 'baileys' },
+      { pattern: /venom/i, provider: 'venom' },
+      { pattern: /wppconnect/i, provider: 'wppconnect' },
+      { pattern: /evolution/i, provider: 'evolution' },
+      { pattern: /codechat/i, provider: 'codechat' },
+      { pattern: /zapme/i, provider: 'zapme' },
+      { pattern: /wabiz/i, provider: 'wabiz' },
+      { pattern: /notificame/i, provider: 'notificame' },
+      { pattern: /chatapi/i, provider: 'chatapi' },
+      { pattern: /waboxapp/i, provider: 'waboxapp' },
+      { pattern: /messagebird/i, provider: 'messagebird' },
+      { pattern: /twilio/i, provider: 'twilio' },
+      { pattern: /wati/i, provider: 'wati' },
+      { pattern: /360dialog/i, provider: '360dialog' },
+      { pattern: /infobip/i, provider: 'infobip' }
+    ];
+    
+    for (const { pattern, provider } of patterns) {
+      if (pattern.test(ua)) {
+        return provider;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Normaliza nome do provider
+   */
+  private normalizeProviderName(provider: string): string {
+    return provider
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+  }
+  
+  /**
+   * Detecta tipo de evento pela estrutura
+   */
+  private detectTypeByStructure(event: any): string | null {
+    const body = event.body || event;
+    
+    // Padrões estruturais comuns
+    if (body.message || body.messages) return 'message';
+    if (body.status || body.statuses) return 'status';
+    if (body.notification || body.notifications) return 'notification';
+    if (body.presence) return 'presence';
+    if (body.receipt || body.receipts) return 'receipt';
+    if (body.call || body.calls) return 'call';
+    if (body.group) return 'group';
+    if (body.contact || body.contacts) return 'contact';
+    if (body.media) return 'media';
+    if (body.location) return 'location';
+    if (body.reaction || body.reactions) return 'reaction';
+    if (body.error || body.errors) return 'error';
+    
+    return null;
+  }
+
+  /**
+   * Extrai provider da origem/user-agent
+   */
+  private extractProviderFromOrigin(origin: string): string | null {
+    const lowerOrigin = origin.toLowerCase();
+    
+    // Providers conhecidos
+    if (lowerOrigin.includes('baileys')) return 'baileys';
+    if (lowerOrigin.includes('venom')) return 'venom';
+    if (lowerOrigin.includes('wppconnect')) return 'wppconnect';
+    if (lowerOrigin.includes('evolution')) return 'evolution';
+    if (lowerOrigin.includes('codechat')) return 'codechat';
+    if (lowerOrigin.includes('zapme')) return 'zapme';
+    if (lowerOrigin.includes('wabiz')) return 'wabiz';
+    
+    // Extrai domínio se for URL
+    const domainMatch = origin.match(/https?:\/\/([^\/]+)/);
+    if (domainMatch && domainMatch[1]) {
+      const domain = domainMatch[1];
+      const parts = domain.split('.');
+      if (parts.length >= 2) {
+        // Remove TLD e www
+        const provider = parts[parts.length - 2];
+        if (provider && provider !== 'www') {
+          return provider;
+        }
+      }
+    }
+    
+    return null;
   }
 
   /**

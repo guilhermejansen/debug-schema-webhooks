@@ -89,6 +89,7 @@ export interface EventMetadata {
     truncated: string[];
   };
   variations: SchemaVariation[];
+  savedStructure?: any; // Estrutura salva para reconstrução futura
 }
 
 export interface SchemaVariation {

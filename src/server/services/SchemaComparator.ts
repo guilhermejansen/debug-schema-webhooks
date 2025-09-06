@@ -204,7 +204,7 @@ export class SchemaComparator {
   }
 
   /**
-   * Merge tipos de duas estruturas
+   * Merge tipos de duas estruturas - SEMPRE preserva ambos
    */
   private mergeTypes(
     baseType: EventStructure['type'], 
@@ -212,10 +212,7 @@ export class SchemaComparator {
   ): EventStructure['type'] {
     if (baseType === updateType) return baseType;
     
-    // Se um dos tipos é union, mantém union
-    if (baseType === 'union' || updateType === 'union') return 'union';
-    
-    // Se tipos são diferentes, cria union
+    // SEMPRE cria union quando tipos diferentes para preservar ambos
     return 'union';
   }
 
@@ -243,7 +240,7 @@ export class SchemaComparator {
   }
 
   /**
-   * Merge children de duas estruturas
+   * Merge children de duas estruturas - CUMULATIVO (nunca remove campos)
    */
   private mergeChildren(
     baseChildren?: Map<string, EventStructure>,
@@ -253,7 +250,7 @@ export class SchemaComparator {
     
     const merged = new Map<string, EventStructure>();
     
-    // Todas as chaves únicas
+    // Todas as chaves únicas de AMBAS estruturas
     const allKeys = new Set([
       ...(baseChildren?.keys() || []),
       ...(updateChildren?.keys() || [])
@@ -264,14 +261,16 @@ export class SchemaComparator {
       const updateChild = updateChildren?.get(key);
       
       if (baseChild && updateChild) {
-        // Ambos existem, faz merge recursivo
+        // Ambos existem, faz merge recursivo PRESERVANDO TUDO
         merged.set(key, this.mergeStructures(baseChild, updateChild));
       } else if (baseChild) {
-        // Só existe na base, marca como opcional (campo removido no update)
+        // Campo existe só na base - MANTÉM como opcional
+        // Isso preserva campos de mensagens anteriores (ex: imageMessage quando recebe text)
         const optionalBase = { ...baseChild, optional: true };
         merged.set(key, optionalBase);
       } else if (updateChild) {
-        // Só existe no update, marca como opcional (campo novo)
+        // Campo novo - adiciona como opcional
+        // Isso adiciona novos campos descobertos
         const optionalUpdate = { ...updateChild, optional: true };
         merged.set(key, optionalUpdate);
       }

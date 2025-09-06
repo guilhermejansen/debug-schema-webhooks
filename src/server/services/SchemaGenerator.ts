@@ -306,7 +306,9 @@ ${interfaceCode}`;
           for (const [key, child] of structure.children) {
             const tsType = this.structureToInterface(child, depth + 1);
             const propertyKey = this.sanitizePropertyKey(key);
-            const optional = child.optional ? '?' : '';
+            // SEMPRE adiciona como opcional para campos que podem não existir em todas as variações
+            // Isso garante compatibilidade com todas as variações do evento
+            const optional = child.optional || !this.isAlwaysPresent(child) ? '?' : '';
             
             // Adiciona comentário se foi truncado (como comentário separado)
             if (child.isTruncated) {
@@ -685,6 +687,56 @@ ${interfaceCode}`;
 export interface ${validName} {
   [key: string]: any;
 }`;
+  }
+
+  /**
+   * Verifica se um campo está sempre presente em todas as variações do evento
+   * IMPORTANTE: Na abordagem cumulativa, somos conservadores e marcamos
+   * a maioria dos campos como opcionais para garantir compatibilidade
+   */
+  private isAlwaysPresent(structure: EventStructure): boolean {
+    // Se já está marcado como opcional, definitivamente não está sempre presente
+    if (structure.optional) {
+      return false;
+    }
+    
+    // Para campos de tipo union, significa que vimos diferentes tipos
+    // então o campo pode variar entre eventos
+    if (structure.type === 'union') {
+      return false;
+    }
+    
+    // Para campos truncados, não podemos garantir presença consistente
+    if (structure.isTruncated) {
+      return false;
+    }
+    
+    // Campos fundamentais que SEMPRE existem em TODOS os providers
+    // Seja muito conservador aqui - apenas campos absolutamente essenciais
+    const absolutelyRequiredPaths = [
+      '', // Root sempre existe
+    ];
+    
+    // Para Z-API, alguns campos são sempre presentes
+    if (structure.path?.startsWith('instanceId') || 
+        structure.path?.startsWith('type')) {
+      // Mas apenas se temos muitos exemplos confirmando
+      return structure.examples.length > 10;
+    }
+    
+    // Para WhatsApp Business, object e entry são sempre presentes
+    if (structure.path === 'object' || structure.path === 'entry') {
+      return structure.examples.length > 5;
+    }
+    
+    // Verifica se o path é absolutamente necessário
+    if (absolutelyRequiredPaths.includes(structure.path || '')) {
+      return true;
+    }
+    
+    // Por padrão, na abordagem cumulativa, marcamos como OPCIONAL
+    // Isso garante que novos eventos não quebrem código existente
+    return false;
   }
 
   /**

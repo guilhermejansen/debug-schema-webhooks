@@ -262,7 +262,8 @@ export class FileManager {
       };
     }
     
-    return {
+    // Preserva estrutura salva e outros campos importantes
+    const merged: any = {
       ...existing,
       lastSeen: new Date().toISOString(),
       totalReceived: existing.totalReceived + 1,
@@ -275,6 +276,15 @@ export class FileManager {
       },
       variations: this.mergeVariations(existing.variations, newMetadata.variations)
     };
+    
+    // IMPORTANTE: Preserva ou atualiza savedStructure
+    if ((newMetadata as any).savedStructure) {
+      merged.savedStructure = (newMetadata as any).savedStructure;
+    } else if ((existing as any).savedStructure) {
+      merged.savedStructure = (existing as any).savedStructure;
+    }
+    
+    return merged;
   }
 
   /**

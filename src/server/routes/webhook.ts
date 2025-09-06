@@ -16,24 +16,30 @@ export async function webhookRoutes(app: FastifyInstance) {
       const startTime = Date.now();
       
       try {
-        const event = request.body;
+        const body = request.body;
         const clientIp = request.ip;
         const userAgent = request.headers['user-agent'];
+        
+        // Cria evento completo com headers e body
+        const event = {
+          headers: request.headers as any,
+          body: body
+        };
         
         // Log do evento recebido
         logger.info('Webhook event received', { 
           clientIp,
           userAgent,
-          contentLength: JSON.stringify(event).length,
-          eventType: (event as any)?.eventType || 'unknown',
+          contentLength: JSON.stringify(body).length,
+          eventType: (body as any)?.eventType || (body as any)?.type || 'unknown',
           timestamp: Date.now()
         });
         
         // Validação básica
-        if (!event || typeof event !== 'object') {
+        if (!body || typeof body !== 'object') {
           logger.warn('Invalid webhook payload received', {
             clientIp,
-            payloadType: typeof event
+            payloadType: typeof body
           });
           
           return reply.code(400).send({

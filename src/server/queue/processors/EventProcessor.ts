@@ -425,11 +425,14 @@ export class EventProcessor {
     // Gera exemplos
     const examples = this.generator.generateExamples(structure);
 
-    // Gera metadata
+    // Gera metadata com estrutura salva para reconstrução futura
     const existingMetadata = existingSchema ? 
       (typeof existingSchema.metadata === 'string' ? JSON.parse(existingSchema.metadata) : existingSchema.metadata) : undefined;
     const metadata = this.generator.generateMetadata(eventType, structure, existingMetadata);
     metadata.schemaVersion = schemaVersion;
+    
+    // IMPORTANTE: Salva a estrutura completa no metadata para reconstrução futura
+    metadata.savedStructure = this.serializeStructureForStorage(structure);
 
     // Salva tudo
     const generatedSchema: GeneratedSchema = {
@@ -448,6 +451,43 @@ export class EventProcessor {
       } else {
       this.logger.schemaGenerated(eventType, schemaVersion);
     }
+  }
+
+  /**
+   * Serializa estrutura para armazenamento no metadata
+   */
+  private serializeStructureForStorage(structure: EventStructure): any {
+    const serialize = (node: EventStructure): any => {
+      const serialized: any = {
+        path: node.path,
+        type: node.type,
+        optional: node.optional,
+        examples: node.examples.slice(-5) // Mantém apenas últimos 5 exemplos para economizar espaço
+      };
+      
+      if (node.isTruncated !== undefined) {
+        serialized.isTruncated = node.isTruncated;
+      }
+      
+      if (node.originalType !== undefined) {
+        serialized.originalType = node.originalType;
+      }
+      
+      if (node.children && node.children.size > 0) {
+        serialized.children = {};
+        for (const [key, child] of node.children) {
+          serialized.children[key] = serialize(child);
+        }
+      }
+      
+      if (node.arrayItemType) {
+        serialized.arrayItemType = serialize(node.arrayItemType);
+      }
+      
+      return serialized;
+    };
+    
+    return serialize(structure);
   }
 
   /**
@@ -472,17 +512,131 @@ export class EventProcessor {
   }
 
   /**
-   * Parse estrutura de schema existente (placeholder)
+   * Parse estrutura de schema existente a partir dos dados salvos
    */
-  private async parseExistingStructure(_schema: GeneratedSchema): Promise<EventStructure> {
-    // TODO: Implementar parser real que converte schema Zod de volta para EventStructure
-    // Por enquanto, retorna uma estrutura básica
-    return {
+  private async parseExistingStructure(schema: GeneratedSchema): Promise<EventStructure> {
+    try {
+      // Se temos metadata com estrutura salva, usa ela
+      const metadata = typeof schema.metadata === 'string' ? 
+        JSON.parse(schema.metadata) : schema.metadata;
+      
+      if (metadata?.savedStructure) {
+        // Reconstrói a estrutura a partir do metadata salvo
+        return this.reconstructStructureFromMetadata(metadata.savedStructure);
+      }
+      
+      // Fallback: reconstrói a partir dos exemplos salvos
+      if (schema.examples) {
+        const examples = typeof schema.examples === 'string' ? 
+          JSON.parse(schema.examples) : schema.examples;
+        
+        if (examples.truncated && examples.truncated.length > 0) {
+          // Usa o analyzer para reconstruir a estrutura dos exemplos
+          const mergedStructure = this.reconstructFromExamples(examples.truncated);
+          return mergedStructure;
+        }
+      }
+      
+      // Última tentativa: reconstrói do rawSample se disponível
+      if (schema.rawSample) {
+        const sample = typeof schema.rawSample === 'string' ? 
+          JSON.parse(schema.rawSample) : schema.rawSample;
+        return this.analyzer.buildStructureMap(sample);
+      }
+      
+      // Se nada funcionou, retorna estrutura básica
+      this.logger.warn('Could not reconstruct existing structure, using basic structure');
+      return {
+        path: '',
+        type: 'object',
+        optional: false,
+        examples: []
+      };
+      
+    } catch (error) {
+      this.logger.error('Failed to parse existing structure', error as Error);
+      return {
+        path: '',
+        type: 'object',
+        optional: false,
+        examples: []
+      };
+    }
+  }
+  
+  /**
+   * Reconstrói estrutura a partir de múltiplos exemplos
+   */
+  private reconstructFromExamples(examples: any[]): EventStructure {
+    if (!examples || examples.length === 0) {
+      return {
+        path: '',
+        type: 'object',
+        optional: false,
+        examples: []
+      };
+    }
+    
+    // Analisa cada exemplo e faz merge das estruturas
+    let mergedStructure: EventStructure | null = null;
+    
+    for (const example of examples) {
+      const structure = this.analyzer.buildStructureMap(example);
+      
+      if (!mergedStructure) {
+        mergedStructure = structure;
+      } else {
+        // Faz merge preservando todos os campos
+        mergedStructure = this.comparator.mergeStructures(mergedStructure, structure);
+      }
+    }
+    
+    return mergedStructure || {
       path: '',
       type: 'object',
       optional: false,
-      examples: []
+      examples: examples
     };
+  }
+  
+  /**
+   * Reconstrói estrutura a partir de metadata salvo
+   */
+  private reconstructStructureFromMetadata(savedStructure: any): EventStructure {
+    // Reconstrói recursivamente a estrutura
+    const reconstruct = (node: any): EventStructure => {
+      const structure: EventStructure = {
+        path: node.path || '',
+        type: node.type || 'object',
+        optional: node.optional || false,
+        examples: node.examples || []
+      };
+      
+      if (node.isTruncated !== undefined) {
+        structure.isTruncated = node.isTruncated;
+      }
+      
+      if (node.originalType !== undefined) {
+        structure.originalType = node.originalType;
+      }
+      
+      if (node.children && typeof node.children === 'object') {
+        structure.children = new Map();
+        
+        // Reconstrói o Map de children
+        for (const [key, child] of Object.entries(node.children)) {
+          structure.children.set(key, reconstruct(child));
+        }
+      }
+      
+      if (node.arrayItemType) {
+        structure.arrayItemType = reconstruct(node.arrayItemType);
+      }
+      
+      return structure;
+    };
+    
+    return reconstruct(savedStructure);
   }
 
   /**
